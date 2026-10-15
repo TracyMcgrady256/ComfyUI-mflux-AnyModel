@@ -32,10 +32,13 @@ NEGATIVE_INERT = {"flux"}
 # conditional/ignored per command from the same runtime constants the CLIs warn with.
 NEGATIVE_GUIDANCE_GATED = {"z-image": 0.0, "krea2": 1.0, "mage-flow": 5.0}
 
+# Families that raise on guidance > 1 unless negative_prompt is given (an empty string counts).
+NEGATIVE_EMPTY_FOR_CFG = {"qwen21-edit", "qwen21-controlnet"}
+
 # generate_image params that denote an input image the model consumes.
 IMAGE_ROLE_PARAMS = {
     "image_path", "masked_image_path", "depth_image_path", "redux_image_paths",
-    "controlnet_image_path", "image_paths", "left_image_path", "right_image_path",
+    "controlnet_image_path", "image_paths", "left_image_path", "right_image_path", "mask_image",
     # Z-Image Union ControlNet takes ControlSpec objects rather than paths, but it is still an
     # image role: without it the sampler would read `controls` as an unsatisfiable required arg
     # and refuse to drive the model at all.

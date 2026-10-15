@@ -5,10 +5,10 @@ on:
   pull_request:
 
 jobs:
-  # Supported config: the fork (mflux-CV) that ships every family the node drives.
-  # The full self-tests assert fork behavior (Krea 2, Boogu, FLUX.2-Klein edit, redux).
+  # The retired fork (mflux-CV, frozen at 0.18.39-CV), still the only runtime with ControlNet
+  # stacking, Mage Flow and Qwen-Image-Layered.
   selftests:
-    name: self-tests (mflux-CV fork)
+    name: self-tests (mflux-CV, frozen)
     # Apple Silicon runner: mflux/MLX require arm64 macOS.
     runs-on: macos-14
     steps:
@@ -30,9 +30,9 @@ jobs:
         run: python tests/smoke_import.py
 
   # Registry config: stock upstream mflux from PyPI (what a ComfyUI Manager user gets).
-  # The node MUST load and degrade gracefully without the fork-only families.
-  smoke-upstream:
-    name: smoke (stock mflux from PyPI)
+  # This is the primary runtime since 0.9.1, so it runs every self-test, not just the import.
+  selftests-upstream:
+    name: self-tests (stock mflux from PyPI)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -41,5 +41,13 @@ jobs:
           python-version: "3.12"
       - name: Install stock mflux
         run: pip install "mflux>=0.18.0"
-      - name: Node loads on stock mflux (no fork models)
+      - name: Dispatch + capability self-tests
+        run: python tests/test_dispatch.py
+      - name: Sampler self-tests
+        run: python tests/test_sampler.py
+      - name: Segmentation (AutoMask) self-tests
+        run: python tests/test_segmentation.py
+      - name: Live preview self-tests
+        run: python tests/test_preview.py
+      - name: Node loads on stock mflux
         run: python tests/smoke_import.py

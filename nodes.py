@@ -65,7 +65,7 @@ def _lora_files():
 # image-role arg names, by how the MfluxImage payload fills them
 PRIMARY_SCALAR = {"image_path", "controlnet_image_path", "left_image_path"}
 PRIMARY_LIST = {"redux_image_paths", "image_paths"}
-MASK_ARGS = {"masked_image_path", "mask_path"}
+MASK_ARGS = {"masked_image_path", "mask_path", "mask_image"}
 AUX_ARGS = {"depth_image_path"}
 STRENGTH_SCALAR = {"image_strength", "controlnet_strength"}
 STRENGTH_LIST = {"redux_image_strengths"}
@@ -291,6 +291,10 @@ def inject_image(profile, out, paths, gen):
         ]
         return
     for arg, req in profile.image_role_args.items():
+        if arg in {"image_path", "mask_image"} and "controlnet_image_path" in profile.image_role_args:
+            # Qwen-Image-2.1's Union ControlNet also takes an init image and mask for inpainting. The
+            # chain's primary is the control image there, so it must not double as the init image.
+            continue
         if arg in PRIMARY_SCALAR:
             # A stack of controlnets takes one control image each, in the order of the MfluxImage
             # chain; mflux accepts a list here and pairs it with the checkpoints. Every other scalar
@@ -303,6 +307,8 @@ def inject_image(profile, out, paths, gen):
             out[arg] = list(paths.get("primaries") or [paths["primary"]])
         elif arg in MASK_ARGS:
             if paths.get("mask") is None:
+                if req != "req":
+                    continue  # optional mask (Qwen-Image-2.1 edit): run the full edit without one
                 raise ValueError(f"'{profile.family}' needs a mask — connect 'mask' on MfluxImage.")
             out[arg] = paths["mask"]
         elif arg in AUX_ARGS:
@@ -400,6 +406,11 @@ def normalize_and_validate(profile, params_mode, requested, image_paths):
             )
         else:
             out["negative_prompt"] = neg
+    # Qwen-Image-2.1 edit and ControlNet refuse guidance > 1 without a negative prompt, and the CLI
+    # always passes one (empty by default). Do the same, so CFG runs with an empty negative.
+    if (profile.family in C.NEGATIVE_EMPTY_FOR_CFG and "negative_prompt" in gen
+            and "negative_prompt" not in out and float(out.get("guidance", 0)) > 1.0):
+        out["negative_prompt"] = ""
     sch = requested.get("scheduler", "auto")
     if sch and sch != "auto" and "scheduler" in gen:
         out["scheduler"] = sch
@@ -640,7 +651,7 @@ class MfluxModelSampler:
                 "image": ("IMAGE", {"tooltip": "Quick img2img on base models. For variants (fill/depth/controlnet) use MfluxImage."}),
                 "image_strength": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 1.0, "step": 0.05}),
                 "mflux_image": ("MFLUX_IMAGE",),
-                "mask_mode": (["preserve", "inpaint", "off"], {"default": "preserve", "tooltip": "How to use a mask connected on MfluxImage for edit/img2img models that don't inpaint natively (FLUX.2-edit, qwen-edit, krea2, img2img). preserve: painted (white) areas stay pixel-identical to the original — lock windows/doors. inpaint: only painted (white) areas take the edit. off: ignore. (flux-fill uses its mask natively; this does not apply.)"}),
+                "mask_mode": (["preserve", "inpaint", "off"], {"default": "preserve", "tooltip": "How to use a mask connected on MfluxImage for edit/img2img models that don't inpaint natively (FLUX.2-edit, qwen-edit, krea2, img2img). preserve: painted (white) areas stay pixel-identical to the original — lock windows/doors. inpaint: only painted (white) areas take the edit. off: ignore. (flux-fill uses its mask natively; this does not apply. qwen-image-2.1-edit also takes it natively, with the same meaning: preserve keeps white, inpaint edits white.)"}),
                 "mask_feather": ("INT", {"default": 4, "min": 0, "max": 200, "tooltip": "Gaussian feather (px) on the mask edge for a seamless composite."}),
                 "live_preview": ("BOOLEAN", {"default": True, "tooltip": "Stream the image as it denoises into the node, and drive the progress bar. Also enables the Cancel button mid-generation. Costs one VAE decode per shown step."}),
                 "preview_stride": ("INT", {"default": 2, "min": 1, "max": 20, "tooltip": "Show a preview every N steps (the last step is always shown). 1 = every step (slowest, smoothest). Higher = fewer decodes."}),
@@ -698,10 +709,18 @@ class MfluxModelSampler:
                 # scalar for every image if the payload predates per-image strengths.
                 scalar_s = payload.strength if payload.strength is not None else image_strength
                 per_image = payload.strengths if payload.strengths else [scalar_s] * len(prim_paths)
+                mask_t = payload.mask
+                if mask_t is not None and "mask_image" in handle.profile.image_role_args:
+                    # Qwen-Image-2.1 takes the mask natively, white = the region to edit (the sampler's
+                    # "inpaint"). "preserve" means white = keep, so it goes in inverted; "off" drops it.
+                    if mask_mode == "off":
+                        mask_t = None
+                    elif mask_mode == "preserve":
+                        mask_t = 1.0 - mask_t
                 image_paths = {
                     "primary": prim_paths[0],           # scalar image roles use the first (viewpoint) ref
                     "primaries": prim_paths,            # list image roles (edit) get every reference
-                    "mask": materialize(payload.mask) if payload.mask is not None else None,
+                    "mask": materialize(mask_t) if mask_t is not None else None,
                     "aux": materialize(payload.aux) if payload.aux is not None else None,
                     "strength": scalar_s,
                     "strengths": [float(s) for s in per_image],

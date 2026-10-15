@@ -93,6 +93,34 @@ else:
     ok(D.pick_model_class("krea-2")[0].__name__ == "Krea2", "plain krea-2 still txt2img on upstream")
     print("3b. krea2-depth wiring skipped: runtime without Krea2Depth (upstream mflux)")
 
+# ---- 3d. families added upstream after 0.18 must not fall into an older ladder rung ----
+_routes = [
+    ("qwen-image-2.1", "QwenImage21", "qwen21"), ("qwen-2.1", "QwenImage21", "qwen21"),
+    ("qwen-image-21", "QwenImage21", "qwen21"), ("qwen-image-2.1-turbo", "QwenImage21", "qwen21"),
+    ("qwen-image-2.1-edit", "QwenImage21Edit", "qwen21-edit"),
+    ("qwen-image-2.1-controlnet-union", "QwenImage21Controlnet", "qwen21-controlnet"),
+    ("ming-image-design", "MingImage", "ming"), ("lens-turbo", "LensImage", "lens"),
+    ("z-image-turbo-controlnet-union-2.1", "ZImageTurboControlnet", "z-image-controlnet"),
+    ("krea-2-controlnet-depth", "Krea2Controlnet", "krea2-depth"),
+]
+for alias, cls_name, fam in _routes:
+    if getattr(D, cls_name) is None:
+        continue
+    cls, got = D.pick_model_class(alias)
+    ok(cls.__name__ == cls_name and got == fam, f"{alias} must dispatch to {cls_name}/{fam}, got {cls.__name__}/{got}")
+# the old Qwen-Image releases keep their classes
+ok(D.pick_model_class("qwen-image")[1] == "qwen", "qwen-image (2512) stays on QwenImage")
+ok(D.pick_model_class("qwen-image-edit-2511")[1] == "qwen-edit", "Edit-2511 stays on QwenImageEdit")
+ok(D.pick_model_class("qwen-image-edit-2509")[1] == "qwen-edit", "Edit-2509 stays on QwenImageEdit")
+ok(D.pick_model_class("/local/ckpt", "qwen-image-2.1")[1] == "qwen21", "a local 2.1 checkpoint routes by base_model")
+if D.QwenImage21Edit is not None:
+    _, _, cfg_e, path_e = D.resolve_config_and_path("qwen-image-2.1-edit")
+    ok(cfg_e.model_name == "Qwen/Qwen-Image-2.1" and path_e is None, "2.1 edit runs on the Qwen-Image-2.1 config")
+if D.Krea2Controlnet is not None and D.Krea2Depth is None:
+    ok(D.pick_model_class("krea-2-depth")[0] is D.Krea2Controlnet, "saved workflows' krea-2-depth reaches upstream's ControlNet")
+    ok(not D.requires_controlnet_path(D.Krea2Controlnet), "upstream ControlNet downloads its checkpoint by default")
+print("3d. upstream families (Qwen 2.1, Ming, Lens, Z-Image/Krea 2 ControlNets) dispatch to their own classes OK")
+
 # ---- 3c. dev-redux base resolution (adapter-only repo needs the FLUX.1-dev base) ----
 _, fam_rdx, _, path_rdx = D.resolve_config_and_path("dev-redux")
 ok(fam_rdx == "flux-redux", "dev-redux family")

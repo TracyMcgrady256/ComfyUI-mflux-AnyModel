@@ -89,14 +89,26 @@ Text-to-image (loader + sampler, no image input):
 
 `dev`, `schnell`, `krea-dev`, `qwen`, `z-image`, `z-image-turbo`,
 `flux2-klein-4b`, `flux2-klein-9b`, `ernie-image`, `ernie-image-turbo`, `fibo`,
-`fibo-lite`, `ideogram4`.
+`fibo-lite`, `ideogram4`, `qwen-image-2.1`, `ming-image-design`, `lens-turbo`.
 
 Image-conditioned (loader + sampler + **mflux Image**):
 
 `dev-kontext` (instruction edit), `dev-fill` (inpaint, needs a mask),
 `dev-depth` (depth-guided, needs a depth map), `dev-redux` (image reference),
 `dev-controlnet-canny` (needs a control image), `qwen-image-edit`, `fibo-edit`,
-`flux2-klein-edit`, `krea-2-depth` (depth ControlNet, needs a `controlnet_path`).
+`flux2-klein-edit`, `krea-2-depth` (depth ControlNet, needs a `controlnet_path` on mflux-CV),
+`qwen-image-2.1-edit` (instruction edit; a connected mask is used natively, see below),
+`qwen-image-2.1-controlnet-union` (the chain's image is the control image),
+`z-image-turbo-controlnet-union-2.1`.
+
+On upstream mflux the Krea 2 depth ControlNet arrives in the release after 0.22.0 as
+`krea-2-controlnet-depth`. The node picks it up when it's installed, `krea-2-depth` in saved
+workflows routes to it, and `controlnet_path` becomes optional (it downloads the checkpoint).
+
+Qwen-Image-2.1 edit takes the mask natively, white being the region to edit. The sampler's
+`mask_mode` keeps its meaning: `inpaint` passes the mask as is, `preserve` inverts it so white
+stays locked, and `off` drops it. Outside the edited region the output is the source, pixel for
+pixel.
 
 A HuggingFace repo or local path can be typed into the loader's `model_path` to run
 a model that is not in the dropdown; it is dispatched to the right architecture by

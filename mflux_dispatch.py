@@ -18,6 +18,7 @@ Verified constructor shapes:
 """
 import importlib
 import inspect
+import re
 
 from mflux.models.common.config import ModelConfig
 
@@ -57,6 +58,12 @@ ErnieImage = _imp("mflux.models.ernie_image.variants.txt2img.ernie_image", "Erni
 Krea2 = _imp("mflux.models.krea2.variants.txt2img.krea2", "Krea2")
 Krea2Depth = _imp("mflux.models.krea2.variants.controlnet.krea2_depth", "Krea2Depth")
 BooguImage = _imp("mflux.models.boogu.variants.txt2img.boogu_image", "BooguImage")
+Krea2Controlnet = _imp("mflux.models.krea2.variants.controlnet.krea2_controlnet", "Krea2Controlnet")
+QwenImage21 = _imp("mflux.models.qwen21.variants.txt2img.qwen_image_21", "QwenImage21")
+QwenImage21Edit = _imp("mflux.models.qwen21.variants.edit.qwen_image_21_edit", "QwenImage21Edit")
+QwenImage21Controlnet = _imp("mflux.models.qwen21.variants.controlnet.qwen_image_21_controlnet", "QwenImage21Controlnet")
+MingImage = _imp("mflux.models.ming_image.variants.ming_image", "MingImage")
+LensImage = _imp("mflux.models.lens.variants.txt2img.lens_image", "LensImage")
 MageFlow = _imp("mflux.models.mage_flow.variants.txt2img.mage_flow", "MageFlow")
 MageFlowEdit = _imp("mflux.models.mage_flow.variants.edit.mage_flow_edit", "MageFlowEdit")
 # Z-Image Union ControlNet. Its generate_image takes `controls: list[ControlSpec]` rather than an
@@ -122,8 +129,10 @@ _ALIAS_DISPATCH_RAW = {
     # Krea 2 depth-ControlNet (krea2_depth_generate.py). Needs a controlnet_path (the depth-control
     # checkpoint) supplied on the loader; routes here only via these explicit aliases so plain
     # "krea-2" still lands on txt2img Krea2.
-    "krea-2-depth":             (Krea2Depth,         "krea2-depth"),     # krea2_depth_generate.py
-    "krea2-depth":              (Krea2Depth,         "krea2-depth"),     # krea2_depth_generate.py (spelling alias)
+    # Upstream mflux ships the same depth ControlNet as Krea2Controlnet (krea2_controlnet_generate.py,
+    # after 0.22.0); the fork's Krea2Depth wins when both exist, so saved workflows keep their alias.
+    "krea-2-depth":             (Krea2Depth or Krea2Controlnet, "krea2-depth"),
+    "krea2-depth":              (Krea2Depth or Krea2Controlnet, "krea2-depth"),
     # Z-Image Union ControlNet (z_image_turbo_generate_controlnet.py). Explicit aliases only, so a
     # plain "z-image-turbo" still lands on txt2img ZImage. One control image per MfluxImage in the
     # chain; the type of each comes from the sampler's control_type widget.
@@ -142,7 +151,8 @@ SEEDVR2_ALIASES = {"seedvr2", "seedvr2-3b", "seedvr2-7b", "seedvr2-7B"}
 NON_SAMPLER_ALIASES = {"qwen-image-layered", "qwen-layered"}
 
 # Base txt2img families the sampler drives end-to-end (seed/prompt, optional img2img).
-BASE_FAMILIES = {"flux", "qwen", "z-image", "ideogram4", "fibo", "ernie", "flux2", "krea2", "boogu", "mage-flow"}
+BASE_FAMILIES = {"flux", "qwen", "qwen21", "z-image", "ideogram4", "fibo", "ernie", "flux2", "krea2", "boogu",
+                 "mage-flow", "ming", "lens"}
 
 # Variant/edit families the sampler drives via the typed MfluxImage feeder (primary +
 # optional mask + optional depth/control map + multi-image). catvton and the in-context
@@ -157,6 +167,9 @@ WIRED_VARIANT_FAMILIES = {
     # Z-Image Union ControlNet: control images arrive through the same MfluxImage chain, and are
     # turned into ControlSpecs rather than paths.
     "z-image-controlnet",
+    # Qwen-Image-2.1 instruction edit (image_paths + optional mask_image) and its Union ControlNet
+    # (controlnet_image_path).
+    "qwen21-edit", "qwen21-controlnet",
 }
 # Edit/variant aliases that are valid models but not present in ui.MODEL_CHOICES.
 # (krea-2-depth / krea2-depth come from ALIAS_DISPATCH and already surface in the dropdown.)
@@ -174,10 +187,20 @@ if MageFlowEdit is not None:
     DROPDOWN_EXTRA += ["mage-flow-edit", "mage-flow-edit-turbo"]
 if ZImageTurboControlnet is not None:
     DROPDOWN_EXTRA.append("z-image-controlnet")
+if QwenImage21Edit is not None:
+    DROPDOWN_EXTRA.append("qwen-image-2.1-edit")
 
 # Families whose image roles are all optional in generate_image but that still need at least
 # one image source at run time (krea2-depth: DepthPro needs a photo, unless a depth map is given).
 NEEDS_ANY_IMAGE = {"krea2-depth"}
+
+
+_QWEN21 = re.compile(r"qwen.*(?:2\.1|(?<![0-9])21(?![0-9]))")
+
+
+def _is_qwen21(name: str) -> bool:
+    # qwen-image-2.1, qwen-2.1-turbo, qwen-image-21, qwen-image-turbo-21; never 2512 or Edit-2511.
+    return bool(_QWEN21.search(name))
 
 
 def pick_base_class(model: str, base_model: str = ""):
@@ -188,6 +211,24 @@ def pick_base_class(model: str, base_model: str = ""):
     m, b = model.lower(), (base_model or "").lower()
     if ErnieImage is not None and "ernie" in m:
         return ErnieImage, "ernie"
+    # Qwen-Image-2.1 is its own architecture, so it must not fall into the Qwen-Image ladder below.
+    # A local checkpoint names it through base_model.
+    if QwenImage21 is not None and (_is_qwen21(m) or _is_qwen21(b)):
+        if "controlnet" in m and QwenImage21Controlnet is not None:
+            return QwenImage21Controlnet, "qwen21-controlnet"
+        if "edit" in m and QwenImage21Edit is not None:
+            return QwenImage21Edit, "qwen21-edit"
+        return QwenImage21, "qwen21"
+    if MingImage is not None and ("ming" in m or "ming" in b):
+        return MingImage, "ming"
+    if LensImage is not None and ("lens" in m or "lens" in b):
+        return LensImage, "lens"
+    # Upstream's Krea 2 depth ControlNet ("krea-2-controlnet-depth") before plain Krea 2.
+    if Krea2Controlnet is not None and ("krea-2" in m or "krea2" in m) and "controlnet" in m:
+        return Krea2Controlnet, "krea2-depth"
+    # Z-Image Union ControlNet under its registry name ("z-image-turbo-controlnet-union-2.1").
+    if ZImageTurboControlnet is not None and ("z-image" in m or "zimage" in m) and "controlnet" in m:
+        return ZImageTurboControlnet, "z-image-controlnet"
     # Krea 2 (krea-2 / krea2), NOT Flux.1 Krea ("krea-dev" / "dev-krea", handled by the Flux1 fallback).
     if Krea2 is not None and ("krea-2" in m or "krea2" in m) and "dev" not in m:
         return Krea2, "krea2"
@@ -256,6 +297,16 @@ def resolve_config_and_path(model: str, base_model: str = "", model_path: str = 
         # defaults model_config to the Union 2.1 controlnet config; an explicit model_path still wins.
         cfg = ModelConfig.z_image_turbo_controlnet_union_2_1()
         return cls, family, cfg, (model_path or None)
+    if Krea2Controlnet is not None and cls is Krea2Controlnet and Krea2Depth is None:
+        # Upstream registers the depth ControlNet as "krea-2-controlnet-depth"; the fork's spellings
+        # ("krea-2-depth") are not aliases there, so they resolve through that name.
+        cfg = ModelConfig.from_name("krea-2-controlnet-depth")
+        return cls, family, cfg, (model_path or None)
+    if QwenImage21Edit is not None and cls is QwenImage21Edit and not model_path:
+        # Edit runs on the Qwen-Image-2.1 weights (the CLI defaults to that config). "qwen-image-2.1-edit"
+        # is not a registry alias, and from_name would invent a config named after it.
+        cfg = ModelConfig.from_name("qwen-image-2.1")
+        return cls, family, cfg, None
     if cls is Krea2Depth:
         # krea2-depth is not a ModelConfig alias (from_name would fail); it always runs on the
         # base Krea 2 config, same as the CLI. The depth-control checkpoint arrives via controlnet_path.

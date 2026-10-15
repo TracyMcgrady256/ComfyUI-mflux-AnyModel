@@ -20,6 +20,10 @@ _LATENT_CREATORS = {
     "ideogram4": ("mflux.models.ideogram4.latent_creator.ideogram4_latent_creator", "Ideogram4LatentCreator"),
     "flux2": ("mflux.models.flux2.latent_creator.flux2_latent_creator", "Flux2LatentCreator"),
     "qwen": ("mflux.models.qwen.latent_creator.qwen_latent_creator", "QwenLatentCreator"),
+    # Qwen-Image-2.1 has its own VAE and packing; the longer prefix wins over "qwen".
+    "qwen21": ("mflux.models.qwen21.latent_creator.qwen_image21_latent_creator", "QwenImage21LatentCreator"),
+    "ming": ("mflux.models.ming_image.latent_creator.ming_latent_creator", "MingLatentCreator"),
+    # lens has no LatentCreator in mflux; it falls through to progress-bar-only.
     "z-image": ("mflux.models.z_image.latent_creator.z_image_latent_creator", "ZImageLatentCreator"),
     "fibo": ("mflux.models.fibo.latent_creator.fibo_latent_creator", "FiboLatentCreator"),
     "ernie": ("mflux.models.ernie_image.latent_creator.ernie_latent_creator", "ErnieLatentCreator"),
@@ -58,12 +62,14 @@ class ComfyLivePreview:
         self.pbar = None
         self.total = None
 
-    def call_before_loop(self, seed, prompt, latents, config, canny_image=None, depth_image=None):
+    # **kwargs: mflux adds arguments to its callback protocol over time (0.22 passes control_images),
+    # and a preview must never be the reason a generation fails.
+    def call_before_loop(self, seed, prompt, latents, config, canny_image=None, depth_image=None, **kwargs):
         import comfy.utils
         self.total = int(config.num_inference_steps)
         self.pbar = comfy.utils.ProgressBar(self.total, node_id=self.node_id)
 
-    def call_in_loop(self, t, seed, prompt, latents, config, time_steps):
+    def call_in_loop(self, t, seed, prompt, latents, config, time_steps=None, **kwargs):
         if self.pbar is None:
             import comfy.utils
             self.total = int(config.num_inference_steps)

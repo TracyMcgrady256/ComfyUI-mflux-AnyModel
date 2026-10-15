@@ -146,5 +146,22 @@ def path_no_packed(channels):
 
 check("a VAE without decode_packed_latents is unaffected", path_no_packed(128) == "plain")
 
+# The callback must take every argument mflux's GenerationContext passes it. 0.22 added
+# control_images to before_loop, and a strict signature failed every generation with a preview.
+import inspect  # noqa: E402
+
+try:
+    from mflux.callbacks.generation_context import GenerationContext
+    src = inspect.getsource(GenerationContext)
+    for hook in ("call_before_loop", "call_in_loop"):
+        passed = set()
+        for block in src.split(f"subscriber.{hook}(")[1:]:
+            passed |= {ln.split("=")[0].strip() for ln in block.split(")")[0].splitlines() if "=" in ln}
+        params = inspect.signature(getattr(P.ComfyLivePreview, hook)).parameters
+        takes_any = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+        check(f"{hook} accepts what mflux passes ({sorted(passed)})", takes_any or passed <= set(params))
+except ImportError:
+    print("callback signature check skipped: mflux without GenerationContext")
+
 
 print("\nPREVIEW OK — resolver + registry hygiene + decode safety verified")

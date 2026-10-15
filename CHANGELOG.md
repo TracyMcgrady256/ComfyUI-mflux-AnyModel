@@ -3,6 +3,32 @@
 All notable changes to this project are documented here. The format is loosely
 based on Keep a Changelog.
 
+## 0.10.0
+
+Tested on upstream mflux 0.22.0 with ComfyUI 0.40.0 and torch 2.14.1.
+
+Run end to end through ComfyUI: Qwen-Image-2.1 txt2img, masked edit and ControlNet, Z-Image-Turbo
+and its Union ControlNet, and Lens Turbo. Ming and the Krea 2 depth ControlNet weren't run.
+
+- Qwen-Image-2.1, its instruction edit and its Union ControlNet dispatch to their own classes.
+  Before, every `qwen-image-2.1*` alias fell into the Qwen-Image rung and loaded the wrong
+  architecture. A local 2.1 checkpoint routes through `base_model`.
+- Ming-Image-Design and Lens dispatch to `MingImage` and `LensImage` instead of falling back to
+  FLUX.1.
+- `z-image-turbo-controlnet-union-2.1`, the registry name of the Z-Image Union ControlNet, now
+  reaches `ZImageTurboControlnet` instead of txt2img Z-Image.
+- Upstream's Krea 2 depth ControlNet (`Krea2Controlnet`, after mflux 0.22.0) is wired, and
+  `krea-2-depth` in saved workflows routes to it when mflux-CV isn't installed.
+- The live preview failed every generation on mflux 0.22, whose callbacks pass `control_images`.
+  The preview callbacks now take extra arguments, and a self-test checks them against mflux's
+  `GenerationContext`.
+- `mask_image` is an image role. Qwen-Image-2.1 edit gets the mask natively, inverted for
+  `mask_mode=preserve`; an optional mask no longer raises when it isn't connected.
+- Qwen-Image-2.1 edit and ControlNet get an empty negative prompt at guidance > 1, as the CLI
+  passes one; without it they raise.
+- Live preview uses Qwen-Image-2.1's and Ming's own latent creators.
+- CI runs every self-test on stock mflux from PyPI; the mflux-CV job stays for the frozen fork.
+
 ## 0.9.1
 
 Runs on upstream mflux (mflux-community) as the primary runtime; mflux-cv is retired and frozen
