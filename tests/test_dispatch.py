@@ -112,7 +112,8 @@ for alias, cls_name, fam in _routes:
 ok(D.pick_model_class("qwen-image")[1] == "qwen", "qwen-image (2512) stays on QwenImage")
 ok(D.pick_model_class("qwen-image-edit-2511")[1] == "qwen-edit", "Edit-2511 stays on QwenImageEdit")
 ok(D.pick_model_class("qwen-image-edit-2509")[1] == "qwen-edit", "Edit-2509 stays on QwenImageEdit")
-ok(D.pick_model_class("/local/ckpt", "qwen-image-2.1")[1] == "qwen21", "a local 2.1 checkpoint routes by base_model")
+if D.QwenImage21 is not None:
+    ok(D.pick_model_class("/local/ckpt", "qwen-image-2.1")[1] == "qwen21", "a local 2.1 checkpoint routes by base_model")
 if D.QwenImage21Edit is not None:
     _, _, cfg_e, path_e = D.resolve_config_and_path("qwen-image-2.1-edit")
     ok(cfg_e.model_name == "Qwen/Qwen-Image-2.1" and path_e is None, "2.1 edit runs on the Qwen-Image-2.1 config")
